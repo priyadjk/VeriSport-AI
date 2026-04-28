@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definitions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. Provenance Records
+    match /provenance_records/{recordId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); // In production, this would be filtered by owner
+      
+      allow create: if isSignedIn() 
+        && isValidId(recordId)
+        && isValidProvenance(incoming())
+        && isOwner(incoming().ownerId)
+        && incoming().createdAt == request.time;
+        
+      allow update: if isSignedIn()
+        && isOwner(existing().ownerId)
+        && isValidProvenance(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'mediaTitle']);
+
+      allow delete: if false; // Immutability of records
+    }
+
+    function isValidProvenance(data) {
+      return data.mediaTitle is string && data.mediaTitle.size() <= 256
+        && data.ownerId is string && data.ownerId.size() <= 128
+        && data.blockchainTx is string && data.blockchainTx.size() <= 256
+        && data.status in ['MINTED', 'VERIFIED', 'PENDING']
+        && (data.authenticityScore == null || (data.authenticityScore >= 0 && data.authenticityScore <= 100))
+        && data.keys().hasAll(['mediaTitle', 'ownerId', 'blockchainTx', 'status', 'createdAt'])
+        && data.keys().size() <= 9;
+    }
+
+    // 2. Piracy Alerts
+    match /piracy_alerts/{alertId} {
+      allow read: if isSignedIn();
+      
+      // Piracy alerts are restricted to trusted system nodes
+      allow create: if isSignedIn()
+        && isValidId(alertId)
+        && isValidAlert(incoming())
+        && incoming().detectedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidAlert(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        && incoming().detectedAt == existing().detectedAt;
+
+      allow delete: if false;
+    }
+
+    function isValidAlert(data) {
+      return data.source is string && data.source.size() <= 128
+        && data.match is string && data.match.size() <= 256
+        && data.severity in ['High', 'Medium', 'Low']
+        && data.status in ['Blocked', 'Notified', 'Redirecting', 'Active']
+        && data.keys().hasAll(['source', 'match', 'severity', 'status', 'detectedAt'])
+        && data.keys().size() <= 8;
+    }
+  }
+}

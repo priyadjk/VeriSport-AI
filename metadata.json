@@ -1,0 +1,6 @@
+{
+  "name": "VeriSport AI",
+  "description": "Real-time Provenance and Integrity Engine for Digital Sports Media. Protecting integrity from lens to ledger.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["AI-driven Authenticity", "Blockchain Provenance", "Real-time Piracy Detection"]
+}
